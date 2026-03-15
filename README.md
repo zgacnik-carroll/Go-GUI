@@ -12,7 +12,7 @@ Three grid sizes are supported — 3×3, 4×4, and 5×5 — selectable from the 
 
 ## Requirements
 
-- Go 1.21 or later (run `go version` in a terminal to confirm)
+- Go 1.26.0 (run `go version` in a terminal to confirm)
 
 ---
 

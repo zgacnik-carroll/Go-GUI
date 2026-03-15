@@ -14,46 +14,45 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/vector"
 )
 
-// Color sliding puzzle — improved version.
-// - Adjustable grid size: 3×3, 4×4, 5×5
+// Color sliding puzzle
+// - Main menu with instructions
+// - Adjustable grid size: 3x3, 4x4, 5x5
 // - Move counter + elapsed timer
-// - Victory animation (tiles pulse and flash)
+// - Victory splash animation
 // - Click or arrow keys to slide tiles
-// - N = new game, 3/4/5 = change grid size
 
 const (
 	windowW  = 920
 	windowH  = 560
-	boardTop = 80 // y pixel where boards start
+	boardTop = 80
 	gap      = 5
 )
 
-// tileColors has enough entries for a 5×5 grid (24 tiles).
 var tileColors = []color.RGBA{
-	{220, 60, 60, 255},   // Red
-	{60, 190, 60, 255},   // Green
-	{60, 90, 220, 255},   // Blue
-	{190, 60, 190, 255},  // Magenta
-	{50, 205, 205, 255},  // Cyan
-	{220, 190, 40, 255},  // Yellow
-	{200, 200, 200, 255}, // Light gray
-	{230, 110, 30, 255},  // Orange
-	{220, 80, 150, 255},  // Pink
-	{80, 180, 180, 255},  // Teal
-	{160, 100, 220, 255}, // Violet
-	{100, 200, 100, 255}, // Lime
-	{200, 150, 80, 255},  // Tan
-	{80, 130, 200, 255},  // Sky blue
-	{200, 200, 80, 255},  // Khaki
-	{180, 80, 80, 255},   // Brick
-	{80, 200, 160, 255},  // Mint
-	{200, 120, 160, 255}, // Rose
-	{120, 160, 80, 255},  // Olive
-	{160, 120, 200, 255}, // Lavender
-	{200, 160, 120, 255}, // Peach
-	{120, 200, 200, 255}, // Aqua
-	{200, 200, 120, 255}, // Cream
-	{160, 80, 120, 255},  // Maroon
+	{220, 60, 60, 255},
+	{60, 190, 60, 255},
+	{60, 90, 220, 255},
+	{190, 60, 190, 255},
+	{50, 205, 205, 255},
+	{220, 190, 40, 255},
+	{200, 200, 200, 255},
+	{230, 110, 30, 255},
+	{220, 80, 150, 255},
+	{80, 180, 180, 255},
+	{160, 100, 220, 255},
+	{100, 200, 100, 255},
+	{200, 150, 80, 255},
+	{80, 130, 200, 255},
+	{200, 200, 80, 255},
+	{180, 80, 80, 255},
+	{80, 200, 160, 255},
+	{200, 120, 160, 255},
+	{120, 160, 80, 255},
+	{160, 120, 200, 255},
+	{200, 160, 120, 255},
+	{120, 200, 200, 255},
+	{200, 200, 120, 255},
+	{160, 80, 120, 255},
 }
 
 // ── Tile ──────────────────────────────────────────────────────────────────────
@@ -64,7 +63,7 @@ type Tile struct {
 	IsBlank    bool
 }
 
-// ── Puzzle logic (grid-size agnostic) ────────────────────────────────────────
+// ── Puzzle logic ──────────────────────────────────────────────────────────────
 
 func createTiles(size int) []*Tile {
 	n := size * size
@@ -114,15 +113,11 @@ func countInversions(tiles []*Tile) int {
 	return n
 }
 
-// isSolvable returns true if the shuffled tile slice represents a solvable puzzle.
-// For odd-width grids: solvable iff inversions are even.
-// For even-width grids: solvable iff (inversions + blank row from bottom) is odd.
 func isSolvable(tiles []*Tile, size int) bool {
 	inv := countInversions(tiles)
 	if size%2 == 1 {
 		return inv%2 == 0
 	}
-	// Find blank row from bottom (1-indexed)
 	blankRow := 0
 	for i, t := range tiles {
 		if t.IsBlank {
@@ -199,7 +194,6 @@ func shuffleBoard(board [][]*Tile, moves int) {
 
 // ── Layout helpers ────────────────────────────────────────────────────────────
 
-// tileSize computes tile size based on grid size to keep boards fitting.
 func tileSize(size int) int {
 	switch size {
 	case 3:
@@ -217,7 +211,6 @@ func boardWidth(size int) int {
 	return size*ts + (size-1)*gap
 }
 
-// leftBoardX and rightBoardX computed dynamically.
 func leftBoardOriginX(size int) int {
 	bw := boardWidth(size)
 	totalW := bw*2 + 80
@@ -251,11 +244,11 @@ func pixelToTile(px, py, originX, size int) (int, int) {
 type GameState int
 
 const (
-	StatePlaying GameState = iota
+	StateMenu GameState = iota
+	StatePlaying
 	StateWon
 )
 
-// VictoryParticle is one particle in the splash burst.
 type VictoryParticle struct {
 	x, y    float32
 	vx, vy  float32
@@ -273,20 +266,19 @@ type Game struct {
 
 	moves     int
 	startTime time.Time
-	elapsed   time.Duration // frozen on win
+	elapsed   time.Duration
 
 	// Victory animation
 	victoryT  int
 	particles []VictoryParticle
 
-	// Best scores per grid size
-	bestMoves [6]int // index = size
-	bestTime  [6]time.Duration
+	// Menu — selected grid size
+	menuSize int
 
 	rng *rand.Rand
 }
 
-func newGame(size int, best *Game) *Game {
+func newGame(size int) *Game {
 	tiles := createTiles(size)
 	shuffleSolvable(tiles, size)
 	goal := createBoard(tiles, size)
@@ -295,70 +287,73 @@ func newGame(size int, best *Game) *Game {
 	for checkWin(current, goal) {
 		shuffleBoard(current, 30)
 	}
-	g := &Game{
+	return &Game{
 		size:      size,
 		goal:      goal,
 		current:   current,
 		startTime: time.Now(),
+		state:     StatePlaying,
 		rng:       rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
-	if best != nil {
-		g.bestMoves = best.bestMoves
-		g.bestTime = best.bestTime
-	}
-	return g
 }
 
-func (g *Game) recordBest() {
-	sz := g.size
-	if g.bestMoves[sz] == 0 || g.moves < g.bestMoves[sz] {
-		g.bestMoves[sz] = g.moves
-	}
-	if g.bestTime[sz] == 0 || g.elapsed < g.bestTime[sz] {
-		g.bestTime[sz] = g.elapsed
+func initialGame() *Game {
+	return &Game{
+		state:    StateMenu,
+		menuSize: 3,
+		rng:      rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 }
 
 // ── Update ────────────────────────────────────────────────────────────────────
 
 func (g *Game) Update() error {
-	// Grid size hotkeys
-	for _, kv := range []struct {
-		key ebiten.Key
-		sz  int
-	}{
-		{ebiten.Key3, 3}, {ebiten.Key4, 4}, {ebiten.Key5, 5},
-	} {
-		if inpututil.IsKeyJustPressed(kv.key) && g.size != kv.sz {
-			*g = *newGame(kv.sz, g)
-			return nil
-		}
+	switch g.state {
+	case StateMenu:
+		g.updateMenu()
+	case StatePlaying:
+		g.updatePlaying()
+	case StateWon:
+		g.updateWon()
+	}
+	return nil
+}
+
+func (g *Game) updateMenu() {
+	// Select grid size with number keys
+	if inpututil.IsKeyJustPressed(ebiten.Key3) {
+		g.menuSize = 3
+	}
+	if inpututil.IsKeyJustPressed(ebiten.Key4) {
+		g.menuSize = 4
+	}
+	if inpututil.IsKeyJustPressed(ebiten.Key5) {
+		g.menuSize = 5
+	}
+	// Start game
+	if inpututil.IsKeyJustPressed(ebiten.KeySpace) || inpututil.IsKeyJustPressed(ebiten.KeyEnter) {
+		*g = *newGame(g.menuSize)
+	}
+}
+
+func (g *Game) updatePlaying() {
+	// Return to menu
+	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+		g.state = StateMenu
+		g.menuSize = g.size
+		return
 	}
 
-	// New game
+	// New game (same size)
 	if inpututil.IsKeyJustPressed(ebiten.KeyN) {
-		*g = *newGame(g.size, g)
-		return nil
-	}
-
-	// Victory animation ticks
-	if g.state == StateWon {
-		g.victoryT++
-		for i := range g.particles {
-			p := &g.particles[i]
-			p.x += p.vx
-			p.y += p.vy
-			p.vy += 0.12 // gravity
-			p.vx *= 0.98 // drag
-			p.life--
-		}
-		return nil
+		*g = *newGame(g.size)
+		return
 	}
 
 	// Elapsed timer
 	g.elapsed = time.Since(g.startTime)
 
-	// ── Mouse click ───────────────────────────────────────────────────────
+	// Mouse click
 	if inpututil.IsMouseButtonJustPressed(ebiten.MouseButtonLeft) {
 		mx, my := ebiten.CursorPosition()
 		row, col := pixelToTile(mx, my, rightBoardOriginX(g.size), g.size)
@@ -367,26 +362,26 @@ func (g *Game) Update() error {
 		}
 	}
 
-	// ── Arrow keys ────────────────────────────────────────────────────────
-	// Arrow keys move the blank in the given direction
-	// (i.e. slide the tile on the opposite side into the blank)
-	br, bc := findBlank(g.current)
-	arrowMoves := map[ebiten.Key][2]int{
-		ebiten.KeyArrowUp:    {br + 1, bc},
-		ebiten.KeyArrowDown:  {br - 1, bc},
-		ebiten.KeyArrowLeft:  {br, bc + 1},
-		ebiten.KeyArrowRight: {br, bc - 1},
-	}
-	for key, rc := range arrowMoves {
-		if inpututil.IsKeyJustPressed(key) {
-			r, c := rc[0], rc[1]
-			if r >= 0 && r < g.size && c >= 0 && c < g.size {
-				g.doSlide(r, c)
-			}
-		}
-	}
+}
 
-	return nil
+func (g *Game) updateWon() {
+	g.victoryT++
+	for i := range g.particles {
+		p := &g.particles[i]
+		p.x += p.vx
+		p.y += p.vy
+		p.vy += 0.12
+		p.vx *= 0.98
+		p.life--
+	}
+	// New game or menu
+	if inpututil.IsKeyJustPressed(ebiten.KeyN) {
+		*g = *newGame(g.size)
+	}
+	if inpututil.IsKeyJustPressed(ebiten.KeyEscape) {
+		g.state = StateMenu
+		g.menuSize = g.size
+	}
 }
 
 func (g *Game) doSlide(row, col int) {
@@ -395,7 +390,6 @@ func (g *Game) doSlide(row, col int) {
 		if checkWin(g.current, g.goal) {
 			g.state = StateWon
 			g.elapsed = time.Since(g.startTime)
-			g.recordBest()
 			g.spawnVictoryParticles()
 		}
 	}
@@ -406,8 +400,6 @@ func (g *Game) spawnVictoryParticles() {
 	ts := tileSize(g.size)
 	bw := boardWidth(g.size)
 	bh := g.size*(ts+gap) - gap
-
-	// Center of the puzzle board
 	cx := float32(rx) + float32(bw)/2
 	cy := float32(boardTop) + float32(bh)/2
 
@@ -419,7 +411,6 @@ func (g *Game) spawnVictoryParticles() {
 		{80, 230, 120, 255},
 		{255, 160, 40, 255},
 	}
-
 	for i := 0; i < 80; i++ {
 		angle := g.rng.Float64() * math.Pi * 2
 		speed := float32(2.5 + g.rng.Float64()*5.5)
@@ -441,6 +432,94 @@ func (g *Game) spawnVictoryParticles() {
 // ── Draw ──────────────────────────────────────────────────────────────────────
 
 func (g *Game) Draw(screen *ebiten.Image) {
+	switch g.state {
+	case StateMenu:
+		g.drawMenu(screen)
+	case StatePlaying:
+		g.drawGame(screen)
+	case StateWon:
+		g.drawGame(screen)
+		g.drawWin(screen)
+	}
+}
+
+func (g *Game) drawMenu(screen *ebiten.Image) {
+	screen.Fill(color.RGBA{18, 18, 28, 255})
+
+	// Draw some decorative tiles across the top
+	demoColors := tileColors[:8]
+	for i, c := range demoColors {
+		x := float32(windowW/2-4*50+i*50) - 25
+		vector.DrawFilledRect(screen, x, 30, 44, 44, c, false)
+		light := lighten(c, 60)
+		dark := darken(c, 50)
+		vector.DrawFilledRect(screen, x, 30, 44, 4, light, false)
+		vector.DrawFilledRect(screen, x, 30, 4, 44, light, false)
+		vector.DrawFilledRect(screen, x, 70, 44, 4, dark, false)
+		vector.DrawFilledRect(screen, x+40, 30, 4, 44, dark, false)
+	}
+
+	// Title
+	ebitenutil.DebugPrintAt(screen, "COLOR  SLIDING  PUZZLE", windowW/2-80, 100)
+
+	// Divider line
+	vector.StrokeLine(screen, float32(windowW/2-180), 120, float32(windowW/2+180), 120, 1, color.RGBA{80, 80, 100, 255}, false)
+
+	// Instructions
+	lines := []string{
+		"HOW TO PLAY",
+		"",
+		"The goal is to arrange the puzzle tiles",
+		"so they match the GOAL board on the left.",
+		"",
+		"Click a tile next to the blank space to slide it.",
+		"",
+		"CONTROLS",
+		"",
+		"Click tile  —  slide it into the blank space",
+		"N                   —  new game (same size)",
+		"ESC                 —  return to this menu",
+		"",
+		"GRID SIZE",
+		"",
+		"3  —  3x3  (easy)",
+		"4  —  4x4  (medium)",
+		"5  —  5x5  (hard)",
+	}
+
+	for i, line := range lines {
+		c := color.RGBA{200, 200, 220, 255}
+		if line == "HOW TO PLAY" || line == "CONTROLS" || line == "GRID SIZE" {
+			c = color.RGBA{255, 220, 80, 255}
+		}
+		_ = c
+		ebitenutil.DebugPrintAt(screen, line, windowW/2-160, 138+i*16)
+	}
+
+	// Grid size selector
+	sizes := []struct {
+		n     int
+		label string
+	}{{3, "3x3"}, {4, "4x4"}, {5, "5x5"}}
+
+	for i, s := range sizes {
+		bx := float32(windowW/2 - 130 + i*100)
+		by := float32(450)
+		bw := float32(80)
+		bh := float32(30)
+		bg := color.RGBA{40, 40, 60, 255}
+		if g.menuSize == s.n {
+			bg = color.RGBA{80, 120, 220, 255}
+		}
+		vector.DrawFilledRect(screen, bx, by, bw, bh, bg, false)
+		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("[%d] %s", s.n, s.label), int(bx)+16, int(by)+10)
+	}
+
+	// Start prompt
+	ebitenutil.DebugPrintAt(screen, "Press SPACE or ENTER to start", windowW/2-100, 500)
+}
+
+func (g *Game) drawGame(screen *ebiten.Image) {
 	screen.Fill(color.RGBA{18, 18, 28, 255})
 
 	lx := leftBoardOriginX(g.size)
@@ -448,50 +527,53 @@ func (g *Game) Draw(screen *ebiten.Image) {
 	ts := tileSize(g.size)
 
 	mx, my := ebiten.CursorPosition()
-	hoverRow, hoverCol := pixelToTile(mx, my, rx, g.size)
+	hoverRow, hoverCol := -1, -1
+	if g.state == StatePlaying {
+		hoverRow, hoverCol = pixelToTile(mx, my, rx, g.size)
+	}
 
-	// Goal board
+	// Draw boards
 	g.drawBoard(screen, g.goal, lx, ts, -1, -1)
-	// Puzzle board
 	g.drawBoard(screen, g.current, rx, ts, hoverRow, hoverCol)
 
-	// Labels
+	// Board labels
 	bw := float32(boardWidth(g.size))
 	ebitenutil.DebugPrintAt(screen, "G O A L", lx+int(bw/2)-24, boardTop-44)
 	ebitenutil.DebugPrintAt(screen, "P U Z Z L E", rx+int(bw/2)-36, boardTop-44)
 
-	// Timer
+	// Stats (below puzzle board)
 	elapsed := g.elapsed
 	mins := int(elapsed.Minutes())
 	secs := int(elapsed.Seconds()) % 60
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Time: %02d:%02d", mins, secs), rx, boardTop+g.size*(ts+gap)+14)
+	statsY := boardTop + g.size*(ts+gap) + 14
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Time:  %02d:%02d", mins, secs), rx, statsY)
+	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Moves: %d", g.moves), rx, statsY+16)
 
-	// Moves
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Moves: %d", g.moves), rx, boardTop+g.size*(ts+gap)+30)
+	// Minimal footer
+	ebitenutil.DebugPrintAt(screen, "N = new game   ESC = menu", lx, windowH-20)
+}
 
-	// Best scores for this grid size
-	sz := g.size
-	if g.bestMoves[sz] > 0 {
-		bt := g.bestTime[sz]
-		bm := int(bt.Minutes())
-		bs := int(bt.Seconds()) % 60
-		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Best: %d moves, %02d:%02d", g.bestMoves[sz], bm, bs), rx, boardTop+g.size*(ts+gap)+46)
-	}
+func (g *Game) drawWin(screen *ebiten.Image) {
+	elapsed := g.elapsed
+	mins := int(elapsed.Minutes())
+	secs := int(elapsed.Seconds()) % 60
 
-	// Grid size selector
-	ebitenutil.DebugPrintAt(screen, "Grid: [3] 3×3   [4] 4×4   [5] 5×5", lx, windowH-38)
-	ebitenutil.DebugPrintAt(screen, fmt.Sprintf("Current: %d×%d   N = New Game   ↑↓←→ or click to slide", g.size, g.size), lx, windowH-22)
+	// Win message at top
+	msg := fmt.Sprintf("SOLVED!   %d moves   %02d:%02d", g.moves, mins, secs)
+	ebitenutil.DebugPrintAt(screen, msg, windowW/2-len(msg)*3, boardTop-58)
+	ebitenutil.DebugPrintAt(screen, "N = new game   ESC = menu", windowW/2-80, boardTop-42)
 
-	// Win overlay
-	if g.state == StateWon {
-		msg := fmt.Sprintf("✓ SOLVED!  %d moves  |  %02d:%02d", g.moves, mins, secs)
-		ebitenutil.DebugPrintAt(screen, msg, lx, boardTop-62)
-		ebitenutil.DebugPrintAt(screen, "Press N for a new game", lx, boardTop-46)
-		g.drawSplash(screen)
+	// Splash particles
+	for _, p := range g.particles {
+		if p.life <= 0 {
+			continue
+		}
+		alpha := float32(p.life) / float32(p.maxLife)
+		c := color.RGBA{p.color.R, p.color.G, p.color.B, uint8(alpha * 255)}
+		vector.DrawFilledCircle(screen, p.x, p.y, p.size*alpha, c, false)
 	}
 }
 
-// drawBoard renders a size×size board with optional hover highlight and victory animation.
 func (g *Game) drawBoard(screen *ebiten.Image, board [][]*Tile, boardX, ts, hoverRow, hoverCol int) {
 	for row := 0; row < g.size; row++ {
 		for col := 0; col < g.size; col++ {
@@ -510,11 +592,9 @@ func (g *Game) drawBoard(screen *ebiten.Image, board [][]*Tile, boardX, ts, hove
 				vector.DrawFilledRect(screen, x-3, y-3, tsf+6, tsf+6, color.RGBA{255, 255, 255, 200}, false)
 			}
 
-			// Tile body
 			tileColor := tile.Color
 			vector.DrawFilledRect(screen, x, y, tsf, tsf, tileColor, false)
 
-			// Bevel
 			dark := darken(tileColor, 50)
 			light := lighten(tileColor, 60)
 			vector.DrawFilledRect(screen, x, y+tsf-4, tsf, 4, dark, false)
@@ -522,18 +602,6 @@ func (g *Game) drawBoard(screen *ebiten.Image, board [][]*Tile, boardX, ts, hove
 			vector.DrawFilledRect(screen, x, y, tsf, 4, light, false)
 			vector.DrawFilledRect(screen, x, y, 4, tsf, light, false)
 		}
-	}
-}
-
-// drawSplash renders the victory burst particles.
-func (g *Game) drawSplash(screen *ebiten.Image) {
-	for _, p := range g.particles {
-		if p.life <= 0 {
-			continue
-		}
-		alpha := float32(p.life) / float32(p.maxLife)
-		c := color.RGBA{p.color.R, p.color.G, p.color.B, uint8(alpha * 255)}
-		vector.DrawFilledCircle(screen, p.x, p.y, p.size*alpha, c, false)
 	}
 }
 
@@ -570,7 +638,7 @@ func main() {
 	ebiten.SetWindowTitle("Color Sliding Puzzle")
 	ebiten.SetWindowResizingMode(ebiten.WindowResizingModeDisabled)
 
-	if err := ebiten.RunGame(newGame(3, nil)); err != nil {
+	if err := ebiten.RunGame(initialGame()); err != nil {
 		log.Fatal(err)
 	}
 }

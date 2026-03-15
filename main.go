@@ -446,26 +446,34 @@ func (g *Game) Draw(screen *ebiten.Image) {
 func (g *Game) drawMenu(screen *ebiten.Image) {
 	screen.Fill(color.RGBA{18, 18, 28, 255})
 
-	// Draw some decorative tiles across the top
-	demoColors := tileColors[:8]
+	const tileW = 44
+	const tileGap = 6
+	const numTiles = 8
+	const totalTilesW = numTiles*tileW + (numTiles-1)*tileGap
+	tileStartX := float32(windowW/2) - float32(totalTilesW)/2
+
+	// Decorative tiles centered across the top
+	demoColors := tileColors[:numTiles]
 	for i, c := range demoColors {
-		x := float32(windowW/2-4*50+i*50) - 25
-		vector.DrawFilledRect(screen, x, 30, 44, 44, c, false)
+		x := tileStartX + float32(i)*(tileW+tileGap)
+		vector.DrawFilledRect(screen, x, 30, tileW, tileW, c, false)
 		light := lighten(c, 60)
 		dark := darken(c, 50)
-		vector.DrawFilledRect(screen, x, 30, 44, 4, light, false)
-		vector.DrawFilledRect(screen, x, 30, 4, 44, light, false)
-		vector.DrawFilledRect(screen, x, 70, 44, 4, dark, false)
-		vector.DrawFilledRect(screen, x+40, 30, 4, 44, dark, false)
+		vector.DrawFilledRect(screen, x, 30, tileW, 4, light, false)
+		vector.DrawFilledRect(screen, x, 30, 4, tileW, light, false)
+		vector.DrawFilledRect(screen, x, 30+tileW-4, tileW, 4, dark, false)
+		vector.DrawFilledRect(screen, x+tileW-4, 30, 4, tileW, dark, false)
 	}
 
-	// Title
-	ebitenutil.DebugPrintAt(screen, "COLOR  SLIDING  PUZZLE", windowW/2-80, 100)
+	// Title — each char is ~7px wide in the debug font
+	title := "COLOR  SLIDING  PUZZLE"
+	ebitenutil.DebugPrintAt(screen, title, windowW/2-len(title)*7/2, 100)
 
 	// Divider line
 	vector.StrokeLine(screen, float32(windowW/2-180), 120, float32(windowW/2+180), 120, 1, color.RGBA{80, 80, 100, 255}, false)
 
-	// Instructions
+	// Instructions — left-aligned block, centered as a block on screen
+	const blockX = windowW/2 - 160
 	lines := []string{
 		"HOW TO PLAY",
 		"",
@@ -477,8 +485,8 @@ func (g *Game) drawMenu(screen *ebiten.Image) {
 		"CONTROLS",
 		"",
 		"Click tile  —  slide it into the blank space",
-		"N                   —  new game (same size)",
-		"ESC                 —  return to this menu",
+		"N           —  new game (same size)",
+		"ESC         —  return to this menu",
 		"",
 		"GRID SIZE",
 		"",
@@ -488,35 +496,36 @@ func (g *Game) drawMenu(screen *ebiten.Image) {
 	}
 
 	for i, line := range lines {
-		c := color.RGBA{200, 200, 220, 255}
-		if line == "HOW TO PLAY" || line == "CONTROLS" || line == "GRID SIZE" {
-			c = color.RGBA{255, 220, 80, 255}
-		}
-		_ = c
-		ebitenutil.DebugPrintAt(screen, line, windowW/2-160, 138+i*16)
+		ebitenutil.DebugPrintAt(screen, line, blockX, 138+i*16)
 	}
 
-	// Grid size selector
+	// Grid size selector buttons — 3 buttons of 80px each with 10px gaps = 260px total
+	const btnW = 80
+	const btnGap = 10
+	const numBtns = 3
+	const totalBtnsW = numBtns*btnW + (numBtns-1)*btnGap
+	btnStartX := float32(windowW/2) - float32(totalBtnsW)/2
+
 	sizes := []struct {
 		n     int
 		label string
 	}{{3, "3x3"}, {4, "4x4"}, {5, "5x5"}}
 
 	for i, s := range sizes {
-		bx := float32(windowW/2 - 130 + i*100)
+		bx := btnStartX + float32(i)*(btnW+btnGap)
 		by := float32(450)
-		bw := float32(80)
-		bh := float32(30)
 		bg := color.RGBA{40, 40, 60, 255}
 		if g.menuSize == s.n {
 			bg = color.RGBA{80, 120, 220, 255}
 		}
-		vector.DrawFilledRect(screen, bx, by, bw, bh, bg, false)
-		ebitenutil.DebugPrintAt(screen, fmt.Sprintf("[%d] %s", s.n, s.label), int(bx)+16, int(by)+10)
+		vector.DrawFilledRect(screen, bx, by, btnW, 30, bg, false)
+		label := fmt.Sprintf("[%d] %s", s.n, s.label)
+		ebitenutil.DebugPrintAt(screen, label, int(bx)+btnW/2-len(label)*7/2, int(by)+10)
 	}
 
 	// Start prompt
-	ebitenutil.DebugPrintAt(screen, "Press SPACE or ENTER to start", windowW/2-100, 500)
+	startMsg := "Press ENTER to start"
+	ebitenutil.DebugPrintAt(screen, startMsg, windowW/2-len(startMsg)*7/2, 500)
 }
 
 func (g *Game) drawGame(screen *ebiten.Image) {
